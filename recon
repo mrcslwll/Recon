@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+
+domains = []
+
+# Vou criar uma lista domains com os dominios só pra ficar mais fácil de entender 
+for line in sys.stdin:
+	domains.append(line.rstrip())
+
+print('wait, dont fuck github, theyre actually good')
+
+# Esse vai ser o loop principal da aplicação
+def subdomain_enumeration(domains):
+	for domain in domains:
+
+		#########################
+		# Subdomain enumeration #
+		#########################
+
+		os.system("clear")
+
+		# Criar uma pasta pra cada dominio 
+		os.system('mkdir ' + domain)
+		os.system('mkdir ' + domain + '/subdomains_dir')
+
+		# 1- Rodar amass
+		print("[*] Rodando amass em " + domain)
+		os.system("amass enum -passive -silent -d " + domain + " -o " + domain + '/amass_results')
+		os.system('cat ' + domain + '/amass_results')
+		abc = input("check")
+
+		# 2- Rodar subfinder
+		print("[*] Rodando subfinder em " + domain)
+		os.system("subfinder -silent -d " + domain + " > " + domain + '/subfinder_results')
+		os.system('cat ' + domain + '/subfinder_results')
+		abc = input("check")
+
+		# 3- Rodar github-subdomains.py
+		print("[*] Rodando github-subdomains em " + domain)
+		os.system("github-subdomains.py -d " + domain + " > " + domain + '/github-subdomains_results')
+		os.system('cat ' + domain + '/github-subdomains_results')
+		abc = input("check")
+
+		# 4- Pesquisar no https://tls.bufferover.run/dns?q=
+		print("[*] Pesquisando no https://tls.bufferover.run/dns?q= em " + domain)
+		os.system("curl https://tls.bufferover.run/dns?q=." + domain + " > " + domain + "/tls-scan_results")
+
+		# Agora tenho que parsear os resultados
+		a = open(domain+"/tls-scan_results", 'r').readlines()
+
+		b = open(domain+"/tls-scan_results", 'w')
+		sortu =[] 
+
+		# Gambiarra
+		for line in a:
+			subdomain = line.split(',')[len(line.split(','))-2] # Separar a ultima parte da linha pq eu não sei fazer regex
+			if domain in line: # Só funciona se tiver o domain na linha pra evitar o todo o lixo que o negocio trás junto 
+				if subdomain not in sortu: # Se já não tiver sido descoberto, adicionar na lista
+					sortu.append(subdomain)
+					b.writelines(subdomain.strip(",").strip('"').strip("*.")+'\n') # Remover o lixo que vem junto
+
+		os.system('cat ' + domain + '/tls-scan_results')
+		abc = input("check")
+
+		# 5- Fazer subdomain bruteforce
+		print("[*] Rodando massdns em " + domain)
+		os.system("massdns.py " + domain + " massdns_results")
+		os.system("mv massdns_results " + domain + "/")
+		os.system("rm resolve_results.txt wordlist")
+		os.system('cat ' + domain + '/massdns_results')
+		abc = input("check")
+
+		# 6- Rodar altdns e depois brute force
+		print("[*] Rodando altdns e depois brute force em " + domain)
+		os.system("cat " + domain+'/*_results | sort -u > ' + domain +'/altdns_input')
+		os.system('altdns -i ' + domain +'/altdns_input -o ' + domain + '/altdns_output -w ~/Wordlists/words.txt')
+		os.system("massdns_list " + domain+ "/altdns_output " + domain+ "/altdns_results")
+		os.system("rm altdns_*")
+		os.system('cat ' + domain + '/altdns_results')
+		abc = input("check")
+
+		# 7- Juntar todos os resultados com sort -u
+		os.system("cat " + domain+ "/*_results | sort -u > " + domain+"/subdomains")
+
+		# 8- Rodar httpx
+		print("[*] Rodando httpx em " + domain)
+		os.system("cat " + domain+ "/subdomains | httpx -silent > " +domain+ "/subdomains_http")
+		os.system('cat ' + domain + '/subdomains_http')
+		abc = input("check")
+
+		# 9- Criar pastas pra cada um dos subdomains
+		print('[*] Criando pastas pra cada um dos subdomains')
+
+		# Tem que remover https:// e http:// pra funcionar
+
+		a = open(domain + "/subdomains_http", 'r').readlines()
+
+		for line in a:
+			if line.startswith("https://"):
+				if not os.path.exists(domain+ "/subdomains_dir/"+line.replace('https://','').rstrip()): # Checa se já existe uma pasta desse subdomain pra criar uma caso não exista
+					os.makedirs(domain+ "/subdomains_dir/"+line.replace('https://','').rstrip())
+
+			if line.startswith("http://"):
+				if not os.path.exists(domain+ "/subdomains_dir/"+line.replace('http://','').rstrip()): # Checa se já existe uma pasta desse subdomain pra criar uma caso não exista
+					os.makedirs(domain+ "/subdomains_dir/"+line.replace('http://','').rstrip())
+	
+
+		os.system('mkdir ' + domain + '/trash') # Cria uma pasta trash pra guardar os outros arquivos
+		os.system('mv ' + domain + '/*_results ' + domain + '/trash ') # Move todos os arquivos com o final _results pra trash
+	    
+	
+		content_discovery(a, domain)
+
+
+
+def content_discovery(subdomains, domain):
+	#####################
+	# Content Discovery #
+	##################### 
+
+	i = 0
+
+
+	# Vou criar uma pasta progress_domain pra ir salvando os resultados dos que já estão prontos pra eu poder ir testando, dai no final
+	# eu excluo ela.
+	os.system("mkdir progress_" + domain)
+
+	# 1- Directory bruteforce
+	print("[*] Rodando massdirb")
+	os.system("cat " + domain + "/subdomains_http | massdirb " + domain)
+	os.system('ls ' + domain + '/subdomains_dir/*')
+	abc = input("check")
+
+	for subdomain in subdomains:
+		subdomain = subdomain.rstrip()
+
+		if subdomain.startswith('http://'):
+			subdomain_directory = subdomain.replace('http://', '')
+
+		if subdomain.startswith('https://'):
+			subdomain_directory = subdomain.replace('https://', '') 
+
+		os.system("clear")
+		print("[*] Content discovery em " + subdomain_directory + " (" + str(i) + '/'+str(len(subdomains)) + ')')
+
+		print("[*] Criando pasta pra salvar o progresso de " + subdomain_directory)
+		os.system("mkdir progress_" + domain+'/'+subdomain_directory)
+
+		# 2- Port scanning
+		print("[*] Rodando port scan em " + subdomain_directory )
+		os.system("nmap -v -A " + subdomain_directory + " > " + domain + "/subdomains_dir/" + subdomain_directory  + '/nmap_results')
+		os.system('ls ' + domain + '/subdomains_dir/*')
+		abc = input("check")
+
+		# 3- Gau
+		print("[*] Rodando gau em " + subdomain_directory )
+		os.system("echo " + subdomain_directory  + " | gau  > " + domain + "/subdomains_dir/" + subdomain_directory  + '/gau_results')
+		os.system('ls ' + domain + '/subdomains_dir/*')
+		abc = input("check")
+
+		# 4- Crawling
+		print("[*] Rodando hakrawler em " + subdomain_directory )
+		os.system("echo " + subdomain + " | hakrawler -d 10 -insecure -s -subs -t 8 -u  > " + domain + "/subdomains_dir/" + subdomain_directory  + '/crawling_results')
+		os.system('ls ' + domain + '/subdomains_dir/*')
+		abc = input("check")
+
+		# 5- ParamSpider
+		print("[*] Rodando ParamSpider em " + subdomain_directory )
+		os.system("paramspider -d " + subdomain_directory  + " --subs False --level high -q -o paramspider_results")
+		os.system("mv output/paramspider_results " + domain + '/subdomains_dir/' + subdomain_directory  + '/paramspider_results')
+		os.system("rm -rf output")
+		os.system('ls ' + domain + '/subdomains_dir/*')
+		abc = input("check")
+
+		# Salvar os resultados na pasta progress_domain
+		os.system("ls " + domain + '/subdomains_dir/' + subdomain_directory + '/ > .ls')
+		ls = open('.ls', 'r').readlines()
+		for line in ls:
+			os.system("cp -r " + domain + '/subdomains_dir/' + subdomain_directory + '/' + line.rstrip() + ' progress_' +domain + '/' + subdomain_directory)
+
+		os.system('cat /home/'+os.getlogin()+'/subdomain_notes > notes')
+		i = i + 1
+
+	# 6- Nuclei
+	os.system("nuclei -t cves/ -t exposed-panels/ -t technologies/ -t vulnerabilities/ -t takeovers/ -l " + domain + "/subdomains_http -o " + domain + "/nuclei_generic_results ")
+	os.system('ls ' + domain + '/ ')
+	abc = input("check")
+
+	# Remover a pasta progress_domain porque a pasta principal já foi criada
+	os.system("rm -rf progress_" + domain)
+	os.system("rm .ls")
+
+subdomain_enumeration(domains)
