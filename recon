@@ -9,6 +9,7 @@ domains = []
 for line in sys.stdin:
 	domains.append(line.rstrip())
 
+print('fuck github')
 
 # Esse vai ser o loop principal da aplicação
 def subdomain_enumeration(domains):
